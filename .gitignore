@@ -1,0 +1,12 @@
+# Python cache files
+__pycache__/
+*.pyc
+
+# PyCharm settings
+.idea/
+
+# Virtual environments
+.venv/
+
+# Local GTFS dataset
+data/gtfs_subway/
