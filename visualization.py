@@ -1,29 +1,32 @@
-"""Two Matplotlib panels with playback of saved search expansions."""
+#Two Matplotlib panels with playback of saved search expansions
+#this gives us a side by side comparison for the final video
 
 from textwrap import fill
+from time import monotonic
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch
 from matplotlib.widgets import Button, Slider
 
-
-UNEXPLORED = "#9ca3af"
-EXPANDED = "#2563eb"
-ORIGIN = "#15803d"
-DESTINATION = "#b91c1c"
-ROUTE = "#d49b00"
+#colors
+UNEXPLORED = "#8f8c88"
+EXPANDED = "#1c74e7"
+ORIGIN = "#11b64d"
+DESTINATION = "#d61a01"
+ROUTE = "#ffe600"
 
 
 class ComparisonWindow:
-    """Own the figure, playback state, and controls in one place."""
+    #all in one
 
     def __init__(self, graph, results):
         if len(results["results"]) != 2:
             raise ValueError("Expected exactly two algorithm results.")
-
+        # initialize everything
         self.results = results
         self.tick = 0
         self.playing = False
+        self.last_playback_time = 0.0
         self.last_tick = max(len(result["expanded_order"]) for result in results["results"])
         self.positions = {node["id"]: (node["x"], node["y"]) for node in graph["nodes"]}
         self.node_ids = list(self.positions)
@@ -31,7 +34,7 @@ class ComparisonWindow:
         self.figure, axes = plt.subplots(1, 2, figsize=(12, 7), sharex=True, sharey=True)
         self.figure.subplots_adjust(left=0.06, right=0.96, bottom=0.32, top=0.80, wspace=0.20)
         self.figure.suptitle("Metro optimization — MOCK DATA", fontsize=18)
-        self.figure.text(0.5, 0.89, "One expansion per tick in each unfinished panel. Playback is not execution time.",
+        self.figure.text(0.5, 0.89, "Playback can show multiple expansions per frame. Playback is not execution time.",
                          ha="center", fontsize=10)
         self.figure.text(0.5, 0.85,
                          "Blue: expanded nodes/arrival paths   Gold: final route   Green/red outlines: origin/destination",
@@ -40,25 +43,25 @@ class ComparisonWindow:
         self.panels = [self.draw_panel(axis, graph, result)
                        for axis, result in zip(axes, results["results"])]
 
-        # Keep widgets on self so they remain alive while the window is open.
+        # keep widgets on self so they remain alive while the window is open
         self.play_button = Button(self.figure.add_axes([0.13, 0.14, 0.18, 0.06]), "Play")
         self.step_button = Button(self.figure.add_axes([0.41, 0.14, 0.18, 0.06]), "Step")
         self.reset_button = Button(self.figure.add_axes([0.69, 0.14, 0.18, 0.06]), "Reset")
         self.speed_slider = Slider(self.figure.add_axes([0.30, 0.06, 0.45, 0.03]),
-                                   "Expansions/sec", 1, 10, valinit=2, valstep=1)
+                                   "Expansions/sec", 1, 50, valinit=5, valstep=[1, *range(5, 51, 5)]) #thing 1 
         self.play_button.on_clicked(self.toggle_play)
         self.step_button.on_clicked(self.step)
         self.reset_button.on_clicked(self.reset)
         self.speed_slider.on_changed(self.change_speed)
 
-        # A Matplotlib timer calls advance() periodically without blocking clicks.
-        self.timer = self.figure.canvas.new_timer(interval=500)
+        #Matplotlib timer calls advance() periodically without blocking clicks
+        self.timer = self.figure.canvas.new_timer(interval=max(100, int(1000 / self.speed_slider.val)))
         self.timer.add_callback(self.advance)
         self.figure.canvas.mpl_connect("close_event", self.pause)
         self.render()
 
     def draw_panel(self, axis, graph, result):
-        """Create shapes once; render() will only update their colors and text."""
+        # draws the panel the first time, any updates to color are done in render()
         axis.set_title("A*" if result["algorithm"] == "astar" else result["algorithm"].title())
         axis.set_aspect("equal", adjustable="box")
         axis.set_axis_off()
@@ -86,18 +89,18 @@ class ComparisonWindow:
         for node_id, (x, y) in self.positions.items():
             labels[node_id] = axis.text(x, y, str(node_id), ha="center", va="center", color="white", fontsize=10 if small_graph else 8, zorder=5)
 
-        # Explicit shared limits keep both maps identical and leave room for nodes.
+        # shared limits keep both maps identical and leave room for nodes
         xs, ys = [p[0] for p in points], [p[1] for p in points]
         pad_x, pad_y = max(max(xs) - min(xs), 1) * 0.15, max(max(ys) - min(ys), 1) * 0.20
         axis.set_xlim(min(xs) - pad_x, max(xs) + pad_x)
         axis.set_ylim(min(ys) - pad_y, max(ys) + pad_y)
-        # Figure coordinates reserve status space even as the graph grows.
+        # coordinates reserve status space even as the graph grows
         box = axis.get_position()
         status = self.figure.text((box.x0 + box.x1) / 2, 0.29, "", ha="center", va="top", fontsize=9)
         return {"result": result, "scatter": scatter, "edges": edges, "status": status, "labels": labels}
 
     def render(self):
-        """Turn the current tick into colors and labels in both panels."""
+       #renders! this does the updates to coloration every tick
         for panel in self.panels:
             result = panel["result"]
             trace = result["expanded_order"]
@@ -147,41 +150,51 @@ class ComparisonWindow:
         self.figure.canvas.draw_idle()
 
     def advance(self):
-        """One timer tick advances both traces; shorter traces stay finished."""
-        self.tick = min(self.tick + 1, self.last_tick)
+        #this is the tick++ and update
+        # apparently python is so slow it can't really handle a tickrate above 10. so instead do several updates at once per advance
+        expansions = 1
+        if self.playing:
+            speed = self.speed_slider.val
+            expansions = int((monotonic() - self.last_playback_time) * speed)
+            if expansions == 0:
+                return
+            self.last_playback_time += expansions / speed
+        self.tick = min(self.tick + expansions, self.last_tick)
         self.render()
         if self.tick >= self.last_tick:
             self.pause()
-
+    #toggles between play and pause
     def toggle_play(self, event=None):
         if self.playing:
             self.pause()
         elif self.tick < self.last_tick:
             self.playing = True
+            self.last_playback_time = monotonic()
             self.play_button.label.set_text("Pause")
             self.timer.start()
             self.figure.canvas.draw_idle()
-
+    #pause function
     def pause(self, event=None):
         self.timer.stop()
         self.playing = False
         self.play_button.label.set_text("Play")
         self.figure.canvas.draw_idle()
-
+    #progress by one step
     def step(self, event=None):
         self.pause()
         self.advance()
-
+    #resets to first step
     def reset(self, event=None):
         self.pause()
         self.tick = 0
         self.render()
-
+    #tickrate
     def change_speed(self, value):
-        self.timer.interval = int(1000 / value)
+        self.timer.interval = max(100, int(1000 / value))
         if self.playing:
+            self.last_playback_time = monotonic()
             self.timer.stop()
             self.timer.start()
-
+    #shows. doesn't work without
     def show(self):
         plt.show()

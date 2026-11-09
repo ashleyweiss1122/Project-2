@@ -1,11 +1,12 @@
-"""Barebones entry point using fixtures until the search algorithms are ready."""
+#Barebones entry point using fixtures until the search algorithms are ready
 
 import argparse
 import json
 from pathlib import Path
 
 from visualization import ComparisonWindow
-# Path locates files; ComparisonWindow owns the Matplotlib figure and controls.
+# Path locates files
+# ComparisonWindow has the Matplotlib figure and controls
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -33,7 +34,7 @@ def main():
     for result in results["results"]:
         path = " -> ".join(map(str, result["path"]))
         print(f"{result['algorithm']}: {path} | distance: {result['distance']}")
-# reminder to complete
+# reminder to complete!!!
     print("\nThese are saved examples; no search or benchmark has run.")
     # Keep the window object alive while Matplotlib handles clicks and timer events.
     window = ComparisonWindow(graph, results)
